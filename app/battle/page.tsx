@@ -13,6 +13,7 @@ type Move = {
   stamina_cost: number
   nature: string
   damage_type: string
+  weather_effect: string
 }
 
 type Battlemon = {
@@ -25,7 +26,16 @@ type Battlemon = {
   back_image_url: string
   description: string
   special_move_name?: string
+  status?: string | null
 }
+
+type Weather = {
+  name: string
+  turnsLeft: number
+}
+
+
+
 
 const natureColors: Record<string, string> = {
   Fire: "bg-red-500",
@@ -37,6 +47,17 @@ const natureColors: Record<string, string> = {
   Ice: "bg-cyan-300",
   Mental: "bg-indigo-500"
 }
+
+const statusColors: Record<string, string> = {
+  Burn: "bg-red-600",
+  Poison: "bg-purple-600",
+  Paralysis: "bg-yellow-400 text-black",
+  Sleep: "bg-indigo-400",
+  Frozen: "bg-cyan-300 text-black",
+  Confusion: "bg-pink-400"
+}
+
+
 
 export default function BattlePage() {
   const { data: session, status } = useSession()
@@ -51,6 +72,8 @@ export default function BattlePage() {
   const [menuState, setMenuState] = useState<
     "main" | "moves" | "special" | "change"
   >("main")
+
+  const [weather, setWeather] = useState<Weather | null>(null)
 
   const [loading, setLoading] = useState(true)
 
@@ -119,6 +142,31 @@ export default function BattlePage() {
     )
   }
 
+  function applyWeather(move: Move) {
+  if (!move.weather_effect) return
+
+  setWeather({
+    name: move.weather_effect,
+    turnsLeft: 5
+  })
+}
+
+function updateWeather() {
+  setWeather(prev => {
+    if (!prev) return null
+
+    if (prev.turnsLeft <= 1) {
+      return null // weather ends
+    }
+
+    return {
+      ...prev,
+      turnsLeft: prev.turnsLeft - 1
+    }
+  })
+}
+
+
   return (
     <div className="relative w-full h-screen overflow-hidden">
 
@@ -156,6 +204,15 @@ export default function BattlePage() {
             </span>
           ))}
         </div>
+                    {playerActive.status && (
+            <span
+                className={`text-xs px-2 py-1 rounded ml-2 ${
+                statusColors[playerActive.status] || "bg-gray-500"
+                }`}
+            >
+                {playerActive.status}
+            </span>
+            )}
       </div>
 
       {/* ENEMY */}
@@ -188,6 +245,16 @@ export default function BattlePage() {
             </span>
           ))}
         </div>
+                    {enemyActive.status && (
+            <span
+                className={`text-xs px-2 py-1 rounded ml-2 ${
+                statusColors[enemyActive.status] || "bg-gray-500"
+                }`}
+            >
+                {enemyActive.status}
+            </span>
+            )}
+
       </div>
 
       {/* SPRITES */}
