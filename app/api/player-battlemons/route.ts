@@ -1,0 +1,123 @@
+import { NextRequest, NextResponse } from "next/server"
+import { pool } from "@/lib/db"
+
+// ✅ Define Stats type
+type Stats = {
+  health: number
+  attack: number
+  defense: number
+  speed: number
+  specialAttack: number
+  specialDefense: number
+  stamina: number
+}
+
+// ✅ Define Request Body type
+type CreatePlayerBattlemonBody = {
+  user_id: number
+  battlemon_id: number
+  name: string
+  stats: Stats
+  item_id?: number | null
+  ability_id?: number | null
+  special_move_id?: number | null
+  moves: (number | null)[]
+}
+
+
+// ✅ Define DB return type
+type InsertResult = {
+  id: number
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    const body: CreatePlayerBattlemonBody = await req.json()
+
+    console.log("BODY:", body)
+
+    const {
+      user_id,
+      battlemon_id,
+      name,
+      stats,
+      item_id,
+      ability_id,
+      special_move_id,
+      moves
+    } = body
+
+    // ✅ Validation
+    if (user_id == null || battlemon_id == null || !name) {
+      return NextResponse.json(
+        { error: "Missing required fields" },
+        { status: 400 }
+      )
+    }
+
+    if (!Array.isArray(moves)) {
+      return NextResponse.json(
+        { error: "Moves must be an array" },
+        { status: 400 }
+      )
+    }
+
+    // ✅ Clean moves (remove undefined, keep null for slots if you want)
+    const cleanedMoves = JSON.stringify(
+    moves.map(m => (m ? Number(m) : null))
+    )
+
+    const cleanedStats = JSON.stringify(stats)
+
+
+
+    // ✅ Insert EVERYTHING in one row
+    const result = await pool.query<{ id: number }>(
+    `INSERT INTO player_battlemons 
+    (user_id, battlemon_id, name, stats_json, moves_json, item_id, ability_id, special_move_id)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+    
+    ON CONFLICT (user_id, battlemon_id)
+    DO UPDATE SET
+        name = EXCLUDED.name,
+        stats_json = EXCLUDED.stats_json,
+        moves_json = EXCLUDED.moves_json,
+        item_id = EXCLUDED.item_id,
+        ability_id = EXCLUDED.ability_id,
+        special_move_id = EXCLUDED.special_move_id,
+        updated_at = CURRENT_TIMESTAMP
+
+    RETURNING id`,
+    [
+        user_id,
+        battlemon_id,
+        name,
+        cleanedStats,
+        cleanedMoves,
+        item_id ?? null,
+        ability_id ?? null,
+        special_move_id ?? null
+    ]
+    )
+
+
+
+    return NextResponse.json({
+      success: true,
+      id: result.rows[0].id
+    })
+
+  } catch (err: unknown) {
+    console.error("SAVE ERROR:", err)
+
+    return NextResponse.json(
+      {
+        error:
+          err instanceof Error
+            ? err.message
+            : "Unknown error"
+      },
+      { status: 500 }
+    )
+  }
+}

@@ -1,0 +1,647 @@
+"use client"
+
+import { useState, useEffect } from "react"
+
+export default function BuildBattlemon() {
+  const MAX_POINTS = 100
+
+  const [stats, setStats] = useState({
+    health: 22,
+    attack: 10,
+    defense: 16,
+    speed: 6,
+    specialAttack: 13,
+    specialDefense: 13,
+    stamina: 20
+  })
+
+  const [battlemons, setBattlemons] = useState<any[]>([])
+  const [selectedBattlemon, setSelectedBattlemon] = useState<any>(null)
+  const [tempBattlemon, setTempBattlemon] = useState<any>(null)
+
+  const [showSelector, setShowSelector] = useState(false)
+
+  const [abilities, setAbilities] = useState<any[]>([])
+  const [specialMoves, setSpecialMoves] = useState<any[]>([])
+
+  const [moves, setMoves] = useState<any[]>([]) // all available moves
+  const [selectedMoves, setSelectedMoves] = useState<(any | null)[]>([null, null, null, null])
+  const [activeSlot, setActiveSlot] = useState<number | null>(null)
+  const [showMoveSelector, setShowMoveSelector] = useState(false)
+
+  const [items, setItems] = useState<any[]>([])
+  const [selectedItem, setSelectedItem] = useState<any>(null)
+  const [showItemSelector, setShowItemSelector] = useState(false)
+
+  const [selectedAbility, setSelectedAbility] = useState<any>(null)
+  const [selectedSpecialMove, setSelectedSpecialMove] = useState<any>(null)
+
+  const [showAbilitySelector, setShowAbilitySelector] = useState(false)
+  const [showSpecialMoveSelector, setShowSpecialMoveSelector] = useState(false)
+
+  const [battlemonNatures, setBattlemonNatures] = useState<string[]>([])
+
+
+  useEffect(() => {
+    fetch("/api/battlemons")
+      .then(res => res.json())
+      .then(setBattlemons)
+  }, [])
+
+  useEffect(() => {
+    fetch("/api/moves")
+      .then(res => res.json())
+      .then(data => {
+        console.log("MOVES:", data)
+        setMoves(data)
+      })
+  }, [])
+
+  useEffect(() => {
+    fetch("/api/items")
+      .then(res => res.json())
+      .then(data => {
+        console.log("ITEMS:", data)
+        setItems(data)
+      })
+  }, [])
+
+  useEffect(() => {
+  const natures = calculateNatures(selectedMoves)
+  setBattlemonNatures(natures)
+}, [selectedMoves])
+
+
+  function calculateNatures(moves: (any | null)[]) {
+  const natureSet = new Set<string>()
+
+  moves.forEach(move => {
+    if (move?.nature) {
+      natureSet.add(move.nature)
+    }
+  })
+
+  return Array.from(natureSet)
+}
+
+
+
+  const totalPoints = Object.values(stats).reduce((a, b) => a + b, 0)
+
+  function updateStat(stat: string, delta: number) {
+    setStats(prev => {
+      const currentValue = prev[stat as keyof typeof prev]
+      const newValue = currentValue + delta
+
+      if (newValue < 0) return prev
+      if (delta > 0 && totalPoints >= MAX_POINTS) return prev
+
+      return {
+        ...prev,
+        [stat]: newValue
+      }
+    })
+  }
+
+  // ✅ Confirm Selection (Save)
+async function handleConfirmSelection() {
+  if (!tempBattlemon) return
+
+  // ✅ 1. Set new battlemon
+  setSelectedBattlemon(tempBattlemon)
+
+  // ✅ 2. RESET dependent selections
+  setAbilities([])
+  setSpecialMoves([])
+
+  setSelectedAbility(null)
+  setSelectedSpecialMove(null)
+
+  setSelectedMoves([null, null, null, null]) // 🔥 IMPORTANT
+  setBattlemonNatures([])
+
+  try {
+    const res = await fetch(
+      `/api/battlemon-details/${tempBattlemon.id}`
+    )
+
+    const data = await res.json()
+
+    // ✅ 3. Load new compatible options
+    setAbilities(data.abilities || [])
+    setSpecialMoves(data.specialMoves || [])
+
+  } catch (err) {
+    console.error("Fetch error:", err)
+    setAbilities([])
+    setSpecialMoves([])
+  }
+
+  setShowSelector(false)
+  setTempBattlemon(null)
+}
+
+
+
+async function handleSave() {
+  const payload = {
+  user_id: 1, // temp (later from auth)
+  battlemon_id: selectedBattlemon.id,
+  name: selectedBattlemon.name,
+  stats,
+  item_id: selectedItem?.id,
+  ability_id: selectedAbility?.id,
+  special_move_id: selectedSpecialMove?.id,
+  moves: selectedMoves.map(m => m?.id ?? null)
+}
+
+
+
+  await fetch("/api/player-battlemons", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  })
+}
+
+const natureColors: Record<string, string> = {
+  Fire: "bg-red-500",
+  Water: "bg-blue-500",
+  Grass: "bg-green-500",
+  Electric: "bg-yellow-400",
+  Ground: "bg-orange-900",
+  Flying: "bg-teal-400",
+  Ice: "bg-cyan-300",
+  Mental: "bg-indigo-500"
+}
+
+
+  return (
+    <div className="min-h-screen bg-gradient-to-b from-black via-gray-900 to-black text-white p-4 md:p-8">
+
+      <h1 className="text-3xl md:text-4xl font-bold mb-6">Build BattleMon</h1>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+
+        {/* LEFT PANEL — STATS */}
+        <div className="bg-gray-900/70 border border-gray-700 rounded-xl p-4">
+          <h2 className="text-xl mb-4 font-semibold">Stats</h2>
+
+          <div className="space-y-3">
+            {Object.entries(stats).map(([key, val]) => (
+              <div key={key} className="flex items-center justify-between bg-black/40 rounded-lg px-3 py-2">
+                <span className="capitalize text-sm">{key}</span>
+
+                <div className="flex items-center gap-2">
+                  <button onClick={() => updateStat(key, -1)} className="w-8 h-8 bg-gray-800 rounded">◀</button>
+                  <span className="w-8 text-center">{val}</span>
+                  <button onClick={() => updateStat(key, 1)} className="w-8 h-8 bg-gray-800 rounded">▶</button>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-6 border-t border-gray-700 pt-4 flex justify-between font-semibold">
+            <span>Total</span>
+            <span className={totalPoints === MAX_POINTS ? "text-red-400" : ""}>
+              {totalPoints} / {MAX_POINTS}
+            </span>
+          </div>
+        </div>
+
+        {/* CENTER PANEL */}
+        <div className="bg-gray-900/70 border border-gray-700 rounded-xl p-4 space-y-6">
+          <div className="bg-gray-800 p-3 rounded">
+            <p className="text-sm opacity-60 mb-2">Nature</p>
+
+            <div className="flex flex-wrap gap-2 justify-center">
+              {battlemonNatures.length > 0 ? (
+                battlemonNatures.map((nature, i) => (
+                  <span
+                    key={i}
+                    className={`px-3 py-1 rounded-full text-sm ${natureColors[nature] || "bg-gray-700"}`}
+                  >
+                    {nature}
+                  </span>
+                ))
+              ) : (
+                <span className="opacity-50 text-sm">None</span>
+              )}
+            </div>
+          </div>
+   
+          {/* Moves */}
+          <h2 className="text-xl font-semibold">Moves</h2>
+
+            <div className="grid grid-cols-2 gap-3">
+              {selectedMoves.map((move, index) => (
+                <button
+                  key={index}
+                  onClick={() => {
+                    setActiveSlot(index)
+                    setShowMoveSelector(true)
+                  }}
+                  className="bg-gray-800 h-20 rounded-lg flex items-center justify-center text-center hover:bg-gray-700"
+                >
+                  {move ? (
+                    <div>
+                      <p className="font-semibold">{move.name}</p>
+                      <p className="text-xs opacity-70">
+                        {move.nature} | {move.damage_type}
+                      </p>
+
+                      <p className="text-xs opacity-70">
+                        DMG: {move.base_damage} | ACC: {move.accuracy}
+                      </p>
+                    </div>
+                  ) : (
+                    <span className="opacity-50">Select Move</span>
+                  )}
+                </button>
+              ))}
+            </div>
+
+          {showMoveSelector && (
+            <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
+
+              <div className="bg-gray-900 p-6 rounded-xl w-[90%] md:w-[800px] max-h-[85vh] flex flex-col">
+
+                <h2 className="text-xl mb-4">Select Move</h2>
+
+                <div className="flex-1 overflow-y-auto pr-2">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+
+                    {moves.map((move) => (
+                      <div
+                        key={move.id}
+                        onClick={() => {
+                          if (activeSlot === null) return
+
+                          const updated = [...selectedMoves]
+                          updated[activeSlot] = move
+
+                          setSelectedMoves(updated)
+                          setShowMoveSelector(false)
+                        }}
+                        className="bg-gray-800 p-3 rounded-lg cursor-pointer hover:bg-gray-700"
+                      >
+                        <p className="font-semibold">{move.name}</p>
+
+                        <p className="text-xs opacity-70">
+                          DMG: {move.base_damage} | ACC: {move.accuracy}
+                        </p>
+
+                        <p className="text-xs opacity-70">
+                          STA: {move.stamina_cost}
+                        </p>
+
+                        <p className="text-xs opacity-70">
+                          Nat: {move.nature}
+                        </p>
+
+                        <p className="text-xs mt-1 opacity-60">
+                          {move.description}
+                        </p>
+                      </div>
+                    ))}
+
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => setShowMoveSelector(false)}
+                  className="mt-4 text-gray-400"
+                >
+                  Cancel
+                </button>
+
+              </div>
+            </div>
+          )}
+      
+
+
+          {/* Item */}
+          <h2 className="text-xl font-semibold">Item</h2>
+
+            <div className="relative">
+              <button
+                onClick={() => setShowItemSelector(true)}
+                className="bg-gray-800 h-16 rounded-lg w-full flex items-center justify-center hover:bg-gray-700"
+              >
+                {selectedItem ? (
+                  <div className="text-center">
+                    <p className="font-semibold">{selectedItem.name}</p>
+                    <p className="text-xs opacity-60">{selectedItem.effect}</p>
+                  </div>
+                ) : (
+                  <span className="opacity-50">Select Item</span>
+                )}
+              </button>
+
+              {/* ❌ DELETE BUTTON */}
+              {selectedItem && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation() // 🚨 prevents opening modal
+                    setSelectedItem(null)
+                  }}
+                  className="absolute top-1 right-1 bg-red-600 w-6 h-6 rounded-full text-xs flex items-center justify-center hover:bg-red-700"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+
+            {showItemSelector && (
+  <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
+
+    <div className="bg-gray-900 p-6 rounded-xl w-[90%] md:w-[600px] max-h-[80vh] flex flex-col">
+
+      <h2 className="text-xl mb-4">Select Item</h2>
+
+      <div className="flex-1 overflow-y-auto pr-2">
+
+        <div className="grid grid-cols-1 gap-3">
+
+          {items.map((item) => (
+            <div
+              key={item.id}
+              onClick={() => {
+                setSelectedItem(item)
+                setShowItemSelector(false)
+              }}
+              className="bg-gray-800 p-3 rounded-lg cursor-pointer hover:bg-gray-700"
+            >
+              <p className="font-semibold">{item.name}</p>
+
+              <p className="text-xs opacity-70">
+                {item.effect}
+              </p>
+
+              <p className="text-xs mt-1 opacity-60">
+                {item.description}
+              </p>
+                      </div>
+                    ))}
+
+                  </div>
+
+                </div>
+
+                <button
+                  onClick={() => setShowItemSelector(false)}
+                  className="mt-4 text-gray-400"
+                >
+                  Cancel
+                </button>
+
+              </div>
+            </div>
+          )}
+
+
+
+          {/* Battlemon */}
+          <h2 className="text-xl font-semibold">BattleMon</h2>
+
+          <div className="bg-gray-800 rounded-lg p-4 flex flex-col items-center justify-center text-center">
+
+            {selectedBattlemon ? (
+              <>
+                <img
+                  src={selectedBattlemon.image_url || "/placeholder.png"}
+                  className="h-24 mb-2 object-contain"
+                />
+
+                <p className="text-lg font-semibold">
+                  {selectedBattlemon.name}
+                </p>
+
+                <p className="text-sm opacity-70">
+                  ID: {selectedBattlemon.id}
+                </p>
+
+                <button
+                  onClick={() => setShowSelector(true)}
+                  className="mt-2 text-xs bg-gray-700 px-3 py-1 rounded"
+                >
+                  Change
+                </button>
+              </>
+            ) : (
+              <button
+                onClick={() => setShowSelector(true)}
+                className="bg-blue-600 px-4 py-2 rounded"
+              >
+                Choose Battlemon
+              </button>
+            )}
+
+          </div>
+
+        </div>
+
+        {/* RIGHT PANEL */}
+        <div className="bg-gray-900/70 border border-gray-700 rounded-xl p-4">
+
+          {/* Abilities */}
+          <h2 className="text-xl mb-4 font-semibold">Special Ability</h2>
+
+          <div className="relative">
+            <button
+              onClick={() => setShowAbilitySelector(true)}
+              className="w-full bg-gray-800 p-3 rounded text-left hover:bg-gray-700"
+            >
+              {selectedAbility ? (
+                <div>
+                  <p className="font-semibold">{selectedAbility.name}</p>
+                  <p className="text-xs opacity-60">{selectedAbility.description}</p>
+                </div>
+              ) : (
+                <span className="opacity-50">Select Ability</span>
+              )}
+            </button>
+
+            {selectedAbility && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setSelectedAbility(null)
+                }}
+                className="absolute top-1 right-1 bg-red-600 w-6 h-6 rounded-full text-xs"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+          {showAbilitySelector && (
+            <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
+
+              <div className="bg-gray-900 p-6 rounded-xl w-[90%] md:w-[600px] max-h-[80vh] flex flex-col">
+
+                <h2 className="text-xl mb-4">Select Ability</h2>
+
+                <div className="flex-1 overflow-y-auto pr-2">
+                  <div className="grid grid-cols-1 gap-3">
+
+                    {abilities.map((a:any) => (
+                      <div
+                        key={a.id}
+                        onClick={() => {
+                          setSelectedAbility(a)
+                          setShowAbilitySelector(false)
+                        }}
+                        className="bg-gray-800 p-3 rounded-lg cursor-pointer hover:bg-gray-700"
+                      >
+                        <p className="font-semibold">{a.name}</p>
+                        <p className="text-xs opacity-60">{a.description}</p>
+                      </div>
+                    ))}
+
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => setShowAbilitySelector(false)}
+                  className="mt-4 text-gray-400"
+                >
+                  Cancel
+                </button>
+
+              </div>
+            </div>
+          )}
+
+
+
+          {/* Special Moves */}
+          <h2 className="text-xl mt-6 mb-4 font-semibold">Special Moves</h2>
+
+          <div className="relative">
+            <button
+              onClick={() => setShowSpecialMoveSelector(true)}
+              className="w-full bg-gray-800 p-3 rounded text-left hover:bg-gray-700"
+            >
+              {selectedSpecialMove ? (
+                <div>
+                  <p className="font-semibold">{selectedSpecialMove.name}</p>
+                  <p className="text-xs opacity-60">
+                    {selectedSpecialMove.description}
+                  </p>
+                </div>
+              ) : (
+                <span className="opacity-50">Select Special Move</span>
+              )}
+            </button>
+
+            {selectedSpecialMove && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setSelectedSpecialMove(null)
+                }}
+                className="absolute top-1 right-1 bg-red-600 w-6 h-6 rounded-full text-xs"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+          {showSpecialMoveSelector && (
+            <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
+
+              <div className="bg-gray-900 p-6 rounded-xl w-[90%] md:w-[600px] max-h-[80vh] flex flex-col">
+
+                <h2 className="text-xl mb-4">Select Special Move</h2>
+
+                <div className="flex-1 overflow-y-auto pr-2">
+                  <div className="grid grid-cols-1 gap-3">
+
+                    {specialMoves.map((m:any) => (
+                      <div
+                        key={m.id}
+                        onClick={() => {
+                          setSelectedSpecialMove(m)
+                          setShowSpecialMoveSelector(false)
+                        }}
+                        className="bg-gray-800 p-3 rounded-lg cursor-pointer hover:bg-gray-700"
+                      >
+                        <p className="font-semibold">{m.name}</p>
+                        <p className="text-xs opacity-60">{m.description}</p>
+                      </div>
+                    ))}
+
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => setShowSpecialMoveSelector(false)}
+                  className="mt-4 text-gray-400"
+                >
+                  Cancel
+                </button>
+
+              </div>
+            </div>
+          )}
+
+
+
+        </div>
+      </div>
+
+      {/* MODAL */}
+      {showSelector && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
+
+          <div className="bg-gray-900 p-6 rounded-xl w-[90%] md:w-[600px] max-h-[80vh] overflow-y-auto">
+
+            <h2 className="text-xl mb-4">Select Battlemon</h2>
+
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+
+              {battlemons.map((b:any)=>(
+                <div
+                  key={b.id}
+                  onClick={()=>setTempBattlemon(b)}
+                  className={`p-4 rounded-lg cursor-pointer transition
+                    ${tempBattlemon?.id === b.id
+                      ? "bg-blue-600"
+                      : "bg-gray-800 hover:bg-gray-700"}
+                  `}
+                >
+                  <p className="font-semibold">{b.name}</p>
+                  <p className="text-xs opacity-70">{b.description}</p>
+                </div>
+              ))}
+
+            </div>
+
+            {/* ACTION BUTTONS */}
+            <div className="flex justify-between mt-4">
+              <button
+                onClick={()=>setShowSelector(false)}
+                className="text-gray-400"
+              >
+                Cancel
+              </button>
+
+              <button
+                onClick={handleConfirmSelection}
+                className="bg-blue-600 px-4 py-2 rounded"
+              >
+                Save
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* Save Button */}
+      <div className="flex justify-center mt-6">
+        <button onClick={handleSave} className="w-20 h-10 bg-red-800 rounded">Save</button>
+      </div>
+
+    </div>
+  )
+}
