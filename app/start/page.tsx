@@ -20,8 +20,10 @@ BattleMon
 Welcome {session?.user?.username}
 </p>
 
-<button className="px-6 py-2 bg-blue-500 text-white rounded">
-Battle Simulator
+<button 
+onClick={()=>router.push("/battle")}
+className="px-6 py-2 bg-blue-500 text-white rounded">
+Battle against AI
 </button>
 
 <button

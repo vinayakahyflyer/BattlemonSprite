@@ -144,24 +144,47 @@ async function handleConfirmSelection() {
 
 
 async function handleSave() {
-  const payload = {
-  user_id: 1, // temp (later from auth)
-  battlemon_id: selectedBattlemon.id,
-  name: selectedBattlemon.name,
-  stats,
-  item_id: selectedItem?.id,
-  ability_id: selectedAbility?.id,
-  special_move_id: selectedSpecialMove?.id,
-  moves: selectedMoves.map(m => m?.id ?? null)
+  try {
+    if (!selectedBattlemon) {
+      alert("Please select a Battlemon")
+      return
+    }
+
+    const payload = {
+      battlemon_id: selectedBattlemon.id,
+      name: selectedBattlemon.name,
+      stats,
+      item_id: selectedItem?.id ?? null,
+      ability_id: selectedAbility?.id ?? null,
+      special_move_id: selectedSpecialMove?.id ?? null,
+
+      // ✅ send FULL move objects
+      moves: selectedMoves
+    }
+
+    const res = await fetch("/api/player-battlemons", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(payload)
+    })
+
+    const data = await res.json()
+
+    if (!res.ok) {
+      alert(data.error || "Save failed")
+      return
+    }
+
+    alert("Battlemon saved successfully 🚀")
+
+  } catch (err) {
+    console.error(err)
+    alert("Something went wrong")
+  }
 }
 
-
-
-  await fetch("/api/player-battlemons", {
-    method: "POST",
-    body: JSON.stringify(payload)
-  })
-}
 
 const natureColors: Record<string, string> = {
   Fire: "bg-red-500",
@@ -174,6 +197,9 @@ const natureColors: Record<string, string> = {
   Mental: "bg-indigo-500"
 }
 
+const isSaveDisabled =
+  !selectedBattlemon ||
+  selectedMoves.every(m => m === null)
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-black via-gray-900 to-black text-white p-4 md:p-8">
@@ -640,7 +666,17 @@ const natureColors: Record<string, string> = {
 
       {/* Save Button */}
       <div className="flex justify-center mt-6">
-        <button onClick={handleSave} className="w-20 h-10 bg-red-800 rounded">Save</button>
+        <button
+        onClick={handleSave}
+        disabled={isSaveDisabled}
+        className={`w-20 h-10 rounded ${
+          isSaveDisabled
+            ? "bg-gray-600 cursor-not-allowed"
+            : "bg-red-800"
+        }`}
+      >
+        Save
+      </button>
       </div>
 
     </div>
