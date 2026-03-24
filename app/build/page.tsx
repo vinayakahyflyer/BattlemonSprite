@@ -567,6 +567,7 @@ const natureColors: Record<string, string> = {
                       >
                         <p className="font-semibold">{m.name}</p>
                         <p className="text-xs opacity-60">{m.description}</p>
+                        <p className="text-xs opacity-60">Base_dmg: {m.base_damage}</p>
                       </div>
                     ))}
 
