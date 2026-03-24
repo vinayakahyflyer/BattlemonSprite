@@ -31,7 +31,9 @@ className="px-6 py-2 bg-green-500 text-white rounded"
 Build BattleMon
 </button>
 
-<button className="px-6 py-2 bg-purple-500 text-white rounded">
+<button 
+onClick={()=>router.push("/my-battlemons")}
+className="px-6 py-2 bg-purple-500 text-white rounded">
 My Battlemons
 </button>
 

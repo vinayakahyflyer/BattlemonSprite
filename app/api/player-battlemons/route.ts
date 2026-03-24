@@ -121,3 +121,69 @@ export async function POST(req: NextRequest) {
     )
   }
 }
+
+export async function GET(req: NextRequest) {
+  try {
+    const userId = req.nextUrl.searchParams.get("user_id")
+
+    if (!userId) {
+      return NextResponse.json(
+        { error: "Missing user_id" },
+        { status: 400 }
+      )
+    }
+
+    const res = await pool.query(
+      `
+      SELECT 
+      pb.id,
+      pb.name,
+      pb.stats_json,
+      pb.moves_json,
+      pb.item_id,
+      pb.ability_id,
+      pb.special_move_id,
+      pb.created_at,
+
+      b.name AS battlemon_name,
+      b.description,
+      b.image_url,
+      b.back_image_url,
+
+      a.name AS ability_name,
+      i.name AS item_name,
+      sm.name AS special_move_name
+
+    FROM player_battlemons pb
+
+    JOIN battlemons b 
+      ON pb.battlemon_id = b.id
+
+    LEFT JOIN abilities a 
+      ON pb.ability_id = a.id
+
+    LEFT JOIN items i 
+      ON pb.item_id = i.id
+
+    LEFT JOIN special_moves sm 
+      ON pb.special_move_id = sm.id
+
+    WHERE pb.user_id = $1
+    ORDER BY pb.created_at DESC
+
+      `,
+      [Number(userId)]
+    )
+
+    return NextResponse.json(res.rows)
+
+  } catch (err) {
+    console.error("GET PLAYER BATTLEMONS ERROR:", err)
+
+    return NextResponse.json(
+      { error: "Internal Server Error" },
+      { status: 500 }
+    )
+  }
+}
+
