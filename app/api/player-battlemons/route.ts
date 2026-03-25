@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from "next/server"
 import { pool } from "@/lib/db"
 import { getUser } from "@/lib/auth/getUser"
 
-// ✅ Stats type
+// =======================
+// TYPES
+// =======================
+
 type Stats = {
   health: number
   attack: number
@@ -13,7 +16,6 @@ type Stats = {
   stamina: number
 }
 
-// ✅ Move type
 type Move = {
   id: number
   name: string
@@ -24,7 +26,6 @@ type Move = {
   damage_type: string
 }
 
-// ✅ Request body (NO user_id anymore)
 type CreatePlayerBattlemonBody = {
   battlemon_id: number
   name: string
@@ -38,15 +39,13 @@ type CreatePlayerBattlemonBody = {
 // =======================
 // ✅ CREATE / UPDATE
 // =======================
+
 export async function POST(req: NextRequest) {
   try {
     const user = await getUser()
 
     if (!user) {
-      return NextResponse.json(
-        { error: "Unauthorized" },
-        { status: 401 }
-      )
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
     const body: CreatePlayerBattlemonBody = await req.json()
@@ -61,7 +60,6 @@ export async function POST(req: NextRequest) {
       moves
     } = body
 
-    // ✅ Validation
     if (!battlemon_id || !name) {
       return NextResponse.json(
         { error: "Missing required fields" },
@@ -76,16 +74,16 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // ✅ Check if already exists (same base battlemon)
+    // ✅ Check existing
     const existingRes = await pool.query(
-      `SELECT id FROM player_battlemons 
+      `SELECT id, slot_position FROM player_battlemons 
        WHERE user_id = $1 AND battlemon_id = $2`,
       [user.id, battlemon_id]
     )
 
     const isUpdate = existingRes.rows.length > 0
 
-    // ✅ Roster limit (ONLY for new insert)
+    // ✅ Roster limit
     if (!isUpdate) {
       const countRes = await pool.query(
         `SELECT COUNT(*) FROM player_battlemons WHERE user_id = $1`,
@@ -102,18 +100,27 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // ✅ Clean JSON
-    const cleanedMoves = JSON.stringify(
-      moves.filter(m => m !== null)
-    )
+    // ✅ Assign slot_position if new
+    let slotPosition: number | null = null
 
+    if (!isUpdate) {
+      const slotRes = await pool.query(
+        `SELECT COALESCE(MAX(slot_position), 0) + 1 AS next_slot
+         FROM player_battlemons
+         WHERE user_id = $1`,
+        [user.id]
+      )
+
+      slotPosition = slotRes.rows[0].next_slot
+    }
+
+    const cleanedMoves = JSON.stringify(moves.filter(m => m !== null))
     const cleanedStats = JSON.stringify(stats)
 
-    // ✅ Insert / Update
     const result = await pool.query<{ id: number }>(
       `INSERT INTO player_battlemons 
-      (user_id, battlemon_id, name, stats_json, moves_json, item_id, ability_id, special_move_id)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+      (user_id, battlemon_id, name, stats_json, moves_json, item_id, ability_id, special_move_id, slot_position)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
       
       ON CONFLICT (user_id, battlemon_id)
       DO UPDATE SET
@@ -134,7 +141,8 @@ export async function POST(req: NextRequest) {
         cleanedMoves,
         item_id ?? null,
         ability_id ?? null,
-        special_move_id ?? null
+        special_move_id ?? null,
+        slotPosition
       ]
     )
 
@@ -148,10 +156,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(
       {
-        error:
-          err instanceof Error
-            ? err.message
-            : "Unknown error"
+        error: err instanceof Error ? err.message : "Unknown error"
       },
       { status: 500 }
     )
@@ -159,17 +164,15 @@ export async function POST(req: NextRequest) {
 }
 
 // =======================
-// ✅ GET USER BATTLEMONS
+// ✅ GET (ORDERED)
 // =======================
+
 export async function GET() {
   try {
     const user = await getUser()
 
     if (!user) {
-      return NextResponse.json(
-        { error: "Unauthorized" },
-        { status: 401 }
-      )
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
     const res = await pool.query(
@@ -179,10 +182,12 @@ export async function GET() {
         pb.name,
         pb.stats_json,
         pb.moves_json,
-        pb.item_id,
-        pb.ability_id,
+        pb.slot_position,
+        pb.battlemon_id,
+        pb.slot_position,
+        pb.item_id,          -- 🔥 REQUIRED
+        pb.ability_id,       -- 🔥 REQUIRED
         pb.special_move_id,
-        pb.created_at,
 
         b.name AS battlemon_name,
         b.description,
@@ -194,21 +199,13 @@ export async function GET() {
         sm.name AS special_move_name
 
       FROM player_battlemons pb
-
-      JOIN battlemons b 
-        ON pb.battlemon_id = b.id
-
-      LEFT JOIN abilities a 
-        ON pb.ability_id = a.id
-
-      LEFT JOIN items i 
-        ON pb.item_id = i.id
-
-      LEFT JOIN special_moves sm 
-        ON pb.special_move_id = sm.id
+      JOIN battlemons b ON pb.battlemon_id = b.id
+      LEFT JOIN abilities a ON pb.ability_id = a.id
+      LEFT JOIN items i ON pb.item_id = i.id
+      LEFT JOIN special_moves sm ON pb.special_move_id = sm.id
 
       WHERE pb.user_id = $1
-      ORDER BY pb.created_at DESC
+      ORDER BY pb.slot_position ASC
       `,
       [user.id]
     )
@@ -216,7 +213,7 @@ export async function GET() {
     return NextResponse.json(res.rows)
 
   } catch (err) {
-    console.error("GET PLAYER BATTLEMONS ERROR:", err)
+    console.error("GET ERROR:", err)
 
     return NextResponse.json(
       { error: "Internal Server Error" },
@@ -226,38 +223,113 @@ export async function GET() {
 }
 
 // =======================
-// ✅ DELETE BATTLEMON
+// ✅ DELETE (WITH SLOT FIX)
 // =======================
+
 export async function DELETE(req: NextRequest) {
   try {
     const user = await getUser()
 
     if (!user) {
-      return NextResponse.json(
-        { error: "Unauthorized" },
-        { status: 401 }
-      )
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
     const { id } = await req.json()
 
-    if (!id) {
+    const res = await pool.query(
+      `SELECT slot_position FROM player_battlemons 
+       WHERE id = $1 AND user_id = $2`,
+      [id, user.id]
+    )
+
+    if (res.rows.length === 0) {
       return NextResponse.json(
-        { error: "Missing battlemon id" },
-        { status: 400 }
+        { error: "Not found" },
+        { status: 404 }
       )
     }
 
+    const deletedSlot = res.rows[0].slot_position
+
+    // delete
     await pool.query(
       `DELETE FROM player_battlemons 
        WHERE id = $1 AND user_id = $2`,
       [id, user.id]
     )
 
+    // shift slots
+    await pool.query(
+      `UPDATE player_battlemons
+       SET slot_position = slot_position - 1
+       WHERE user_id = $1 AND slot_position > $2`,
+      [user.id, deletedSlot]
+    )
+
     return NextResponse.json({ success: true })
 
   } catch (err) {
     console.error("DELETE ERROR:", err)
+
+    return NextResponse.json(
+      { error: "Internal Server Error" },
+      { status: 500 }
+    )
+  }
+}
+
+// =======================
+// ✅ REORDER (SWAP)
+// =======================
+
+export async function PATCH(req: NextRequest) {
+  try {
+    const user = await getUser()
+
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
+    const { fromSlot, toSlot } = await req.json()
+
+    if (!fromSlot || !toSlot) {
+      return NextResponse.json(
+        { error: "Missing slots" },
+        { status: 400 }
+      )
+    }
+
+    await pool.query("BEGIN")
+
+    await pool.query(
+      `UPDATE player_battlemons 
+       SET slot_position = 0
+       WHERE user_id = $1 AND slot_position = $2`,
+      [user.id, fromSlot]
+    )
+
+    await pool.query(
+      `UPDATE player_battlemons 
+       SET slot_position = $2
+       WHERE user_id = $1 AND slot_position = $3`,
+      [user.id, fromSlot, toSlot]
+    )
+
+    await pool.query(
+      `UPDATE player_battlemons 
+       SET slot_position = $2
+       WHERE user_id = $1 AND slot_position = 0`,
+      [user.id, toSlot]
+    )
+
+    await pool.query("COMMIT")
+
+    return NextResponse.json({ success: true })
+
+  } catch (err) {
+    await pool.query("ROLLBACK")
+
+    console.error("REORDER ERROR:", err)
 
     return NextResponse.json(
       { error: "Internal Server Error" },

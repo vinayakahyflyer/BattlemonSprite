@@ -41,6 +41,27 @@ export default function BuildBattlemon() {
 
   const [battlemonNatures, setBattlemonNatures] = useState<string[]>([])
 
+  const [playerBattlemons, setPlayerBattlemons] = useState<any[]>([])
+
+  useEffect(() => {
+    fetch("/api/player-battlemons")
+      .then(res => res.json())
+      .then(data => {
+        const parsed = data.map((bm: any) => ({
+          ...bm,
+          stats_json:
+            typeof bm.stats_json === "string"
+              ? JSON.parse(bm.stats_json)
+              : bm.stats_json,
+          moves_json:
+            typeof bm.moves_json === "string"
+              ? JSON.parse(bm.moves_json)
+              : bm.moves_json
+        }))
+
+        setPlayerBattlemons(parsed)
+      })
+  }, [])
 
   useEffect(() => {
     fetch("/api/battlemons")
@@ -67,22 +88,165 @@ export default function BuildBattlemon() {
   }, [])
 
   useEffect(() => {
-  const natures = calculateNatures(selectedMoves)
-  setBattlemonNatures(natures)
-}, [selectedMoves])
+    const natures = calculateNatures(selectedMoves)
+    setBattlemonNatures(natures)
+
+    // ❌ Remove invalid ability
+    if (
+      selectedAbility &&
+      !isRequirementMet(selectedAbility.required_natures, natures)
+    ) {
+      setSelectedAbility(null)
+    }
+
+    // ❌ Remove invalid special move
+    if (
+      selectedSpecialMove &&
+      !isRequirementMet(selectedSpecialMove.required_natures, natures)
+    ) {
+      setSelectedSpecialMove(null)
+    }
+
+  }, [selectedMoves])
+
 
 
   function calculateNatures(moves: (any | null)[]) {
-  const natureSet = new Set<string>()
+    const natureSet = new Set<string>()
 
-  moves.forEach(move => {
-    if (move?.nature) {
-      natureSet.add(move.nature)
+    moves.forEach(move => {
+      if (move?.nature) {
+        natureSet.add(move.nature)
+      }
+    })
+
+    return Array.from(natureSet)
+  }
+
+  function getLiveNatures() {
+    return calculateNatures(selectedMoves)
+  }
+
+
+  function normalizeRequired(req: any): string[] {
+    if (!req) return []
+
+    // ✅ CASE 1: Already array
+    if (Array.isArray(req)) return req
+
+    // ✅ CASE 2: Object format (YOUR CURRENT CASE)
+    if (typeof req === "object") {
+      if (Array.isArray(req.required_natures)) {
+        return req.required_natures
+      }
+      return []
     }
-  })
 
-  return Array.from(natureSet)
-}
+    // ✅ CASE 3: String (JSON or plain)
+    if (typeof req === "string") {
+      try {
+        const parsed = JSON.parse(req)
+
+        // if parsed is object → extract again
+        if (parsed && typeof parsed === "object") {
+          if (Array.isArray(parsed.required_natures)) {
+            return parsed.required_natures
+          }
+        }
+
+        if (Array.isArray(parsed)) return parsed
+      } catch {}
+
+      return [req]
+    }
+
+    return []
+  }
+
+
+
+  function isRequirementMet(required: any, current: string[]) {
+    if (!required) return true
+
+    let reqArray: string[] = []
+    let requireAll = true
+    let requirePure = false
+
+    // ✅ Handle object format
+    if (typeof required === "object" && !Array.isArray(required)) {
+      reqArray = required.required_natures || []
+      requireAll = required.require_all ?? true
+      requirePure = required.require_pure ?? false
+    } else {
+      reqArray = normalizeRequired(required)
+    }
+
+    if (reqArray.length === 0) return true
+    if (current.length === 0) return false
+
+    const currentLower = current.map(c => c.toLowerCase())
+    const reqLower = reqArray.map(r => r.toLowerCase())
+
+    // =========================
+    // 🔥 STEP 1: AND / OR CHECK
+    // =========================
+
+    let conditionMet = false
+
+    if (requireAll) {
+      conditionMet = reqLower.every(r => currentLower.includes(r))
+    } else {
+      conditionMet = reqLower.some(r => currentLower.includes(r))
+    }
+
+    if (!conditionMet) return false
+
+    // =========================
+    // 🔥 STEP 2: PURE CHECK
+    // =========================
+
+    if (requirePure) {
+      // must ONLY contain required natures (no extras)
+      const isExactMatch =
+        currentLower.length === reqLower.length &&
+        currentLower.every(c => reqLower.includes(c))
+
+      return isExactMatch
+    }
+
+    return true
+  }
+
+  function formatRequirement(required: any): string {
+    if (!required) return "No requirement"
+
+    let reqArray: string[] = []
+    let requireAll = true
+    let requirePure = false
+
+    if (typeof required === "object" && !Array.isArray(required)) {
+      reqArray = required.required_natures || []
+      requireAll = required.require_all ?? true
+      requirePure = required.require_pure ?? false
+    } else {
+      reqArray = normalizeRequired(required)
+    }
+
+    if (reqArray.length === 0) return "No requirement"
+
+    // 🔥 PURE CASE (MOST IMPORTANT)
+    if (requirePure) {
+      return `${reqArray.join(" + ")} ONLY`
+    }
+
+    // 🔥 AND CASE
+    if (requireAll) {
+      return `Requires: ${reqArray.join(" + ")}`
+    }
+
+    // 🔥 OR CASE
+    return `Requires ANY: ${reqArray.join(" / ")}`
+  }
 
 
 
@@ -104,43 +268,90 @@ export default function BuildBattlemon() {
   }
 
   // ✅ Confirm Selection (Save)
-async function handleConfirmSelection() {
-  if (!tempBattlemon) return
+  async function handleConfirmSelection() {
+    if (!tempBattlemon) return
 
-  // ✅ 1. Set new battlemon
-  setSelectedBattlemon(tempBattlemon)
-
-  // ✅ 2. RESET dependent selections
-  setAbilities([])
-  setSpecialMoves([])
-
-  setSelectedAbility(null)
-  setSelectedSpecialMove(null)
-
-  setSelectedMoves([null, null, null, null]) // 🔥 IMPORTANT
-  setBattlemonNatures([])
-
-  try {
-    const res = await fetch(
-      `/api/battlemon-details/${tempBattlemon.id}`
+    const existing = playerBattlemons.find(
+      pb => Number(pb.battlemon_id) === Number(tempBattlemon.id)
     )
 
-    const data = await res.json()
+    setSelectedBattlemon(tempBattlemon)
 
-    // ✅ 3. Load new compatible options
-    setAbilities(data.abilities || [])
-    setSpecialMoves(data.specialMoves || [])
+    let abilitiesData: any[] = []
+    let specialMovesData: any[] = []
 
-  } catch (err) {
-    console.error("Fetch error:", err)
-    setAbilities([])
-    setSpecialMoves([])
+    try {
+      const res = await fetch(`/api/battlemon-details/${tempBattlemon.id}`)
+      const data = await res.json()
+
+      abilitiesData = data.abilities || []
+      specialMovesData = data.specialMoves || []
+
+      setAbilities(abilitiesData)
+      setSpecialMoves(specialMovesData)
+
+    } catch (err) {
+      console.error("Fetch error:", err)
+    }
+
+    if (existing) {
+      // =========================
+      // LOAD EXISTING DATA
+      // =========================
+
+      setStats(existing.stats_json)
+
+      // ✅ Moves mapping
+      const mapped = [null, null, null, null]
+      existing.moves_json.forEach((m: any, i: number) => {
+        mapped[i] = m
+      })
+      setSelectedMoves(mapped)
+
+      // ✅ Item
+      setSelectedItem(
+        items.find(i => i.id === existing.item_id) || null
+      )
+
+      // =========================
+      // 🔥 IMPORTANT: VALIDATE AGAINST NATURE
+      // =========================
+
+      const natures = calculateNatures(mapped)
+
+      const ability = abilitiesData.find(a => a.id === existing.ability_id)
+      const special = specialMovesData.find(sm => sm.id === existing.special_move_id)
+
+      setSelectedAbility(
+        ability && isRequirementMet(ability.required_natures, natures)
+          ? ability
+          : null
+      )
+
+      setSelectedSpecialMove(
+        special && isRequirementMet(special.required_natures, natures)
+          ? special
+          : null
+      )
+
+    } else {
+      // =========================
+      // RESET FOR NEW BUILD
+      // =========================
+
+      setSelectedMoves([null, null, null, null])
+      setSelectedItem(null)
+      setSelectedAbility(null)
+      setSelectedSpecialMove(null)
+    }
+
+    setShowSelector(false)
+    setTempBattlemon(null)
+    console.log("EXISTING:", existing)
+    console.log("ITEM ID:", existing?.item_id)
+    console.log("ABILITY ID:", existing?.ability_id)
+    console.log("SPECIAL MOVE ID:", existing?.special_move_id)
   }
-
-  setShowSelector(false)
-  setTempBattlemon(null)
-}
-
 
 
 async function handleSave() {
@@ -288,7 +499,6 @@ const isSaveDisabled =
 
           {showMoveSelector && (
             <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
-
               <div className="bg-gray-900 p-6 rounded-xl w-[90%] md:w-[800px] max-h-[85vh] flex flex-col">
 
                 <h2 className="text-xl mb-4">Select Move</h2>
@@ -343,6 +553,8 @@ const isSaveDisabled =
               </div>
             </div>
           )}
+
+
       
 
 
@@ -510,19 +722,63 @@ const isSaveDisabled =
                 <div className="flex-1 overflow-y-auto pr-2">
                   <div className="grid grid-cols-1 gap-3">
 
-                    {abilities.map((a:any) => (
-                      <div
-                        key={a.id}
-                        onClick={() => {
-                          setSelectedAbility(a)
-                          setShowAbilitySelector(false)
-                        }}
-                        className="bg-gray-800 p-3 rounded-lg cursor-pointer hover:bg-gray-700"
-                      >
-                        <p className="font-semibold">{a.name}</p>
-                        <p className="text-xs opacity-60">{a.description}</p>
-                      </div>
-                    ))}
+                    {abilities.map((a: any) => {
+                      const liveNatures = getLiveNatures()
+                      console.log("REQ:", a.required_natures)
+                      console.log("CURRENT:", liveNatures)
+
+
+                      const isValid =
+                        liveNatures.length > 0 &&
+                        isRequirementMet(a.required_natures, liveNatures)
+
+                      return (
+                        <div
+                          key={a.id}
+                          onClick={(e) => {
+                            e.stopPropagation()
+
+                            // 🔥 HARD VALIDATION CHECK
+                            const currentNatures = getLiveNatures()
+
+                            const valid =
+                              currentNatures.length > 0 &&
+                              isRequirementMet(a.required_natures, currentNatures)
+
+                            if (!valid) return
+
+                            setSelectedAbility(a)
+                            setShowAbilitySelector(false)
+                          }}
+                          className={`p-3 rounded-lg border transition
+                            ${
+                              isValid
+                                ? "bg-gray-800 hover:bg-gray-700 cursor-pointer"
+                                : "bg-gray-800 opacity-40 cursor-not-allowed"
+                            }
+                          `}
+                        >
+                          <p className="font-semibold">{a.name}</p>
+
+                          <p className="text-xs opacity-60">
+                            {a.description}
+                          </p>
+
+                          {normalizeRequired(a.required_natures).length > 0 && (
+                            <p className="text-xs mt-1 text-yellow-400">
+                              {formatRequirement(a.required_natures)}
+                          </p>
+
+                          )}
+
+                          {!isValid && (
+                            <p className="text-xs text-red-400 mt-1">
+                              Missing required nature
+                            </p>
+                          )}
+                        </div>
+                      )
+                    })}
 
                   </div>
                 </div>
@@ -533,10 +789,12 @@ const isSaveDisabled =
                 >
                   Cancel
                 </button>
-
+                      
               </div>
             </div>
           )}
+
+
 
 
 
@@ -582,20 +840,64 @@ const isSaveDisabled =
                 <div className="flex-1 overflow-y-auto pr-2">
                   <div className="grid grid-cols-1 gap-3">
 
-                    {specialMoves.map((m:any) => (
-                      <div
-                        key={m.id}
-                        onClick={() => {
-                          setSelectedSpecialMove(m)
-                          setShowSpecialMoveSelector(false)
-                        }}
-                        className="bg-gray-800 p-3 rounded-lg cursor-pointer hover:bg-gray-700"
-                      >
-                        <p className="font-semibold">{m.name}</p>
-                        <p className="text-xs opacity-60">{m.description}</p>
-                        <p className="text-xs opacity-60">Base_dmg: {m.base_damage}</p>
-                      </div>
-                    ))}
+                    {specialMoves.map((m: any) => {
+                      const liveNatures = getLiveNatures()
+
+                      const isValid =
+                        liveNatures.length > 0 &&
+                        isRequirementMet(m.required_natures, liveNatures)
+
+                      return (
+                        <div
+                          key={m.id}
+                          onClick={(e) => {
+                            e.stopPropagation()
+
+                            // 🔥 HARD VALIDATION CHECK
+                            const currentNatures = getLiveNatures()
+
+                            const valid =
+                              currentNatures.length > 0 &&
+                              isRequirementMet(m.required_natures, currentNatures)
+
+                            if (!valid) return
+
+                            setSelectedSpecialMove(m)
+                            setShowSpecialMoveSelector(false)
+                          }}
+                          className={`p-3 rounded-lg border transition
+                            ${
+                              isValid
+                                ? "bg-gray-800 hover:bg-gray-700 cursor-pointer"
+                                : "bg-gray-800 opacity-40 cursor-not-allowed"
+                            }
+                          `}
+                        >
+                          <p className="font-semibold">{m.name}</p>
+
+                          <p className="text-xs opacity-60">
+                            {m.description}
+                          </p>
+
+                          <p className="text-xs opacity-60">
+                            Base DMG: {m.base_damage}
+                          </p>
+
+                          {normalizeRequired(m.required_natures).length > 0 && (
+                            <p className="text-xs mt-1 text-yellow-400">
+                              {formatRequirement(m.required_natures)}
+                            </p>
+
+                          )}
+
+                          {!isValid && (
+                            <p className="text-xs text-red-400 mt-1">
+                              Missing required nature
+                            </p>
+                          )}
+                        </div>
+                      )
+                    })}
 
                   </div>
                 </div>
@@ -610,6 +912,8 @@ const isSaveDisabled =
               </div>
             </div>
           )}
+
+
 
 
 

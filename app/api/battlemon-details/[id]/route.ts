@@ -25,7 +25,11 @@ export async function GET(req: Request, context: Params) {
     // 🔹 Abilities
     const abilityRes = await pool.query(
       `
-      SELECT a.*
+      SELECT 
+        a.id,
+        a.name,
+        a.description,
+        a.rules AS required_natures   -- 🔥 MAP HERE
       FROM abilities a
       JOIN battlemon_abilities ba
         ON a.id = ba.ability_id
@@ -34,10 +38,16 @@ export async function GET(req: Request, context: Params) {
       [battlemonId]
     )
 
+
     // 🔹 Special Moves
     const specialMoveRes = await pool.query(
       `
-      SELECT sm.*
+      SELECT 
+        sm.id,
+        sm.name,
+        sm.description,
+        sm.base_damage,
+        sm.rules AS required_natures   -- 🔥 MAP HERE
       FROM special_moves sm
       JOIN battlemon_special_moves bsm
         ON sm.id = bsm.special_move_id
@@ -45,6 +55,7 @@ export async function GET(req: Request, context: Params) {
       `,
       [battlemonId]
     )
+
 
     return NextResponse.json({
       abilities: abilityRes.rows,

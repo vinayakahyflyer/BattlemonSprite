@@ -24,6 +24,7 @@ type Battlemon = {
   item_name?: string
   special_move_name?: string
   description: string
+  slot_position: number
 }
 
 const natureColors: Record<string, string> = {
@@ -42,11 +43,9 @@ export default function MyBattlemonsPage() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    fetch(`/api/player-battlemons`) // ✅ no user_id
+    fetch(`/api/player-battlemons`)
       .then(res => res.json())
       .then(data => {
-        console.log("MY BATTLEMONS:", data)
-
         const parsed = data.map((bm: any) => ({
           ...bm,
           stats_json:
@@ -68,33 +67,59 @@ export default function MyBattlemonsPage() {
       })
   }, [])
 
-  // ✅ DELETE FIXED (body instead of URL param)
+  // =======================
+  // DELETE
+  // =======================
   async function handleDelete(id: number) {
-    const confirmDelete = confirm("Remove this battlemon?")
-    if (!confirmDelete) return
+    if (!confirm("Remove this battlemon?")) return
+
+    const res = await fetch(`/api/player-battlemons`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id })
+    })
+
+    const data = await res.json()
+
+    if (!res.ok) {
+      alert(data.error || "Delete failed")
+      return
+    }
+
+    setBattlemons(prev => prev.filter(bm => bm.id !== id))
+  }
+
+  // =======================
+  // 🔥 MOVE SLOT
+  // =======================
+  async function moveSlot(index: number, direction: "up" | "down") {
+    const targetIndex = direction === "up" ? index - 1 : index + 1
+
+    if (targetIndex < 0 || targetIndex >= battlemons.length) return
+
+    const fromSlot = battlemons[index].slot_position
+    const toSlot = battlemons[targetIndex].slot_position
+
+    // 🔥 Optimistic UI update
+    const updated = [...battlemons]
+    ;[updated[index], updated[targetIndex]] = [
+      updated[targetIndex],
+      updated[index]
+    ]
+
+    setBattlemons(updated)
 
     try {
-      const res = await fetch(`/api/player-battlemons`, {
-        method: "DELETE",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({ id })
+      await fetch("/api/player-battlemons", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fromSlot,
+          toSlot
+        })
       })
-
-      const data = await res.json()
-
-      if (!res.ok) {
-        alert(data.error || "Delete failed")
-        return
-      }
-
-      // ✅ instant UI update
-      setBattlemons(prev => prev.filter(bm => bm.id !== id))
-
     } catch (err) {
-      console.error(err)
-      alert("Failed to delete")
+      console.error("Reorder failed:", err)
     }
   }
 
@@ -119,20 +144,17 @@ export default function MyBattlemonsPage() {
         My Battlemons
       </h1>
 
-      {/* ✅ ROSTER COUNT */}
       <p className="text-sm text-gray-400 mb-6">
         {battlemons.length} / 6 in roster
       </p>
 
       {battlemons.length === 0 ? (
-        <p className="text-gray-400">
-          No battlemons created yet.
-        </p>
+        <p className="text-gray-400">No battlemons created yet.</p>
       ) : (
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
 
-          {battlemons.map((bm) => {
+          {battlemons.map((bm, index) => {
 
             const natures = getNatures(bm.moves_json)
 
@@ -142,31 +164,50 @@ export default function MyBattlemonsPage() {
                 className="relative bg-gray-900/70 border border-gray-700 rounded-xl p-4 space-y-4"
               >
 
-                {/* ❌ DELETE */}
+                {/* SLOT NUMBER */}
+                {/* <div className="absolute top-2 left-2 text-xs bg-gray-800 px-2 py-1 rounded">
+                  Slot {bm.slot_position}
+                </div> */}
+
+                {/* DELETE */}
                 <button
                   onClick={() => handleDelete(bm.id)}
-                  className="absolute top-2 right-2 bg-red-600 w-7 h-7 rounded-full text-xs flex items-center justify-center hover:bg-red-700"
+                  className="absolute top-2 right-2 bg-red-600 w-7 h-7 rounded-full text-xs"
                 >
                   ✕
                 </button>
 
-                {/* IMAGE + NAME */}
+                {/* 🔥 MOVE BUTTONS */}
+                <div className="absolute bottom-2 right-2 flex flex-col gap-1">
+                  <button
+                    onClick={() => moveSlot(index, "up")}
+                    className="bg-gray-700 px-2 py-1 text-xs rounded hover:bg-gray-600"
+                  >
+                    ⬆
+                  </button>
+                  <button
+                    onClick={() => moveSlot(index, "down")}
+                    className="bg-gray-700 px-2 py-1 text-xs rounded hover:bg-gray-600"
+                  >
+                    ⬇
+                  </button>
+                </div>
+
+                {/* IMAGE */}
                 <div className="flex flex-col items-center text-center">
                   <img
                     src={bm.image_url || "/placeholder.png"}
                     className="h-48 object-contain mb-2"
                   />
 
-                  <h2 className="text-xl font-semibold">
-                    {bm.name}
-                  </h2>
+                  <h2 className="text-xl font-semibold">{bm.name}</h2>
 
                   <p className="text-xs opacity-60">
                     {bm.description}
                   </p>
                 </div>
 
-                {/* 🌈 NATURE WITH COLORS */}
+                {/* NATURE */}
                 <div>
                   <p className="text-sm font-semibold mb-1">Nature</p>
 
@@ -219,9 +260,7 @@ export default function MyBattlemonsPage() {
                           key={i}
                           className="bg-gray-800 p-2 rounded text-xs"
                         >
-                          <p className="font-semibold">
-                            {move.name}
-                          </p>
+                          <p className="font-semibold">{move.name}</p>
 
                           <p className="opacity-70">
                             {move.nature} | {move.damage_type}
