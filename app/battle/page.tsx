@@ -45,7 +45,8 @@ const natureColors: Record<string, string> = {
   Ground: "bg-orange-800",
   Flying: "bg-teal-400",
   Ice: "bg-cyan-300",
-  Mental: "bg-indigo-500"
+  Mental: "bg-indigo-500",
+  Physical: "bg-gray-500"
 }
 
 const statusColors: Record<string, string> = {
@@ -218,7 +219,7 @@ function updateWeather() {
       {/* ENEMY */}
       <div className="absolute top-4 right-4 w-1/3 bg-white p-3 rounded shadow">
         <div className="flex justify-between text-sm font-bold">
-          <span>{playerActive.name}</span>
+          <span>{enemyActive.name}</span>
           <span>HP</span>
         </div>
 
